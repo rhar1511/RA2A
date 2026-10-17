@@ -37,6 +37,7 @@ var ErrPeerUnreachable = errors.New("peer unreachable before delivery")
 var ErrEndpointNotFound = errors.New("endpoint not found before delivery")
 
 type Config struct {
+	Network     NetworkConfig
 	ID          string
 	Name        string
 	PIN         string
@@ -45,9 +46,9 @@ type Config struct {
 }
 
 type Peer struct {
-	ID      string
-	Name    string
-	Address string
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Address string `json:"address"`
 }
 
 // Session is the LAN view of one endpoint. Agent and Capabilities are additive:
@@ -95,6 +96,9 @@ func Start(parent context.Context, config Config) (*Node, error) {
 	if len(config.PIN) != 6 {
 		return nil, errors.New("PIN must be exactly 6 bytes")
 	}
+	if err := config.Network.Validate(config.ID); err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithCancel(parent)
 	n := &Node{
@@ -110,6 +114,12 @@ func Start(parent context.Context, config Config) (*Node, error) {
 	}
 	port := n.bindings.port
 	n.peers[config.ID] = Peer{ID: config.ID, Name: config.Name, Address: net.JoinHostPort("127.0.0.1", fmt.Sprint(port))}
+	for _, peer := range config.Network.Peers {
+		if peer.Name == "" {
+			peer.Name = peer.ID
+		}
+		n.peers[peer.ID] = peer
+	}
 	serviceType := zeroconf.NewType(serviceName)
 	service := zeroconf.NewService(serviceType, config.ID, uint16(port))
 	service.Text = []string{"version=1", "id=" + config.ID, "name=" + config.Name}
@@ -142,7 +152,7 @@ func (n *Node) startServer() error {
 	if err := router.Handle("/v1/messages", mux.HandlerFunc(n.handleMessage)); err != nil {
 		return fmt.Errorf("register message handler: %w", err)
 	}
-	bindings, err := newBoundServers(n.key, router, localIPv4)
+	bindings, err := newBoundServers(n.key, router, localIPv4, n.config.Network.ListenPort)
 	if err != nil {
 		return err
 	}
@@ -187,9 +197,14 @@ func (n *Node) handleSessions(w mux.ResponseWriter, request *mux.Message) {
 		_ = w.SetResponse(codes.InternalServerError, message.TextPlain, strings.NewReader(err.Error()))
 		return
 	}
-	payload, err := json.Marshal(sessionsResponse{ProtocolVersion: ProtocolVersion, Sessions: sessions})
+	queries, _ := request.Queries()
+	compressed := false
+	for _, query := range queries {
+		compressed = compressed || query == sessionCompressionQuery
+	}
+	payload, format, err := encodeSessions(sessions, compressed)
 	if err == nil {
-		err = w.SetResponse(codes.Content, message.AppJSON, bytes.NewReader(payload))
+		err = w.SetResponse(codes.Content, format, bytes.NewReader(payload))
 	}
 	if err != nil {
 		_ = w.SetResponse(codes.InternalServerError, message.TextPlain, strings.NewReader(err.Error()))
@@ -200,6 +215,12 @@ func (n *Node) handlePeerEvent(event zeroconf.Event) {
 	id, name := peerIdentity(event.Name, event.Text)
 	if id == "" || id == n.config.ID {
 		return
+	}
+	// Explicit endpoints take precedence over LAN advertisements and goodbyes.
+	for _, peer := range n.config.Network.Peers {
+		if peer.ID == id {
+			return
+		}
 	}
 	n.peersMu.Lock()
 	if event.Op == zeroconf.OpRemoved {
@@ -334,7 +355,7 @@ func (n *Node) ListSessions(ctx context.Context, peer Peer) ([]Session, error) {
 		return nil, fmt.Errorf("connect to %s: %w", peer.ID, err)
 	}
 	defer client.Close()
-	response, err := client.Get(ctx, "/v1/sessions")
+	response, err := client.Get(ctx, "/v1/sessions", message.Option{ID: message.URIQuery, Value: []byte(sessionCompressionQuery)})
 	if err != nil {
 		return nil, fmt.Errorf("request sessions from %s: %w", peer.ID, err)
 	}
@@ -342,15 +363,15 @@ func (n *Node) ListSessions(ctx context.Context, peer Peer) ([]Session, error) {
 	if response.Code() != codes.Content {
 		return nil, fmt.Errorf("request sessions from %s: CoAP code %v", peer.ID, response.Code())
 	}
-	body, err := io.ReadAll(response.Body())
+	format, err := response.ContentFormat()
 	if err != nil {
-		return nil, fmt.Errorf("read sessions from %s: %w", peer.ID, err)
+		return nil, fmt.Errorf("read session format from %s: %w", peer.ID, err)
 	}
-	var decoded sessionsResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
+	sessions, err := decodeSessions(response.Body(), format)
+	if err != nil {
 		return nil, fmt.Errorf("decode sessions from %s: %w", peer.ID, err)
 	}
-	return decoded.Sessions, nil
+	return sessions, nil
 }
 
 func (n *Node) SendMessage(ctx context.Context, peer Peer, outgoing Message) error {

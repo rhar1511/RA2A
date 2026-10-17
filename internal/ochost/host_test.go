@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const fakeServerSource = `import http.server, sys
+const fakeServerSource = `import http.server, socketserver, sys
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -28,8 +28,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+# HTTPServer resolves the hostname during bind. This loopback fixture needs no
+# DNS or server-name metadata, so use its TCPServer base directly.
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+
+server = Server(("127.0.0.1", int(sys.argv[1])), Handler)
+server.serve_forever()
 `
+
+func TestFakeServerBindsWithoutHostnameResolution(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3 available")
+	}
+	// Fail at the same call where hosted DNS stalls HTTPServer construction.
+	source := `import socket
+
+def reject_hostname(*args):
+    raise RuntimeError("loopback fixture must not resolve a hostname")
+
+socket.getfqdn = reject_hostname
+` + strings.Replace(fakeServerSource, "server.serve_forever()", "server.server_close()", 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, python, "-c", source, "0").CombinedOutput(); err != nil {
+		t.Fatalf("start fixture without DNS: %v\n%s", err, output)
+	}
+}
 
 // stopSupervisedServer kills the shared server a test started.
 //
@@ -201,10 +227,9 @@ func TestSupervisedServerRestartsAfterAnUnexpectedExit(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(counter)
-		if err == nil && strings.Count(string(data), "x") >= 2 {
-			if !Reachable(context.Background(), "http://127.0.0.1:"+strconv.Itoa(port)) {
-				t.Fatal("server must be reachable again after restart")
-			}
+		// The shell records a start before Python binds its HTTP listener.
+		if err == nil && strings.Count(string(data), "x") >= 2 &&
+			Reachable(context.Background(), "http://127.0.0.1:"+strconv.Itoa(port)) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)

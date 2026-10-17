@@ -351,6 +351,20 @@ func TestRunDaemonLoadsPersistedConfig(t *testing.T) {
 	}
 }
 
+func TestBadNetworkConfigRefusesBeforeStartingHarness(t *testing.T) {
+	configuredOperatorHome(t)
+	started := false
+	source := func(context.Context, string, string, io.Writer) (sessionSource, error) {
+		started = true
+		return &fakeSessionSource{}, nil
+	}
+	var output bytes.Buffer
+	err := run(context.Background(), []string{"serve", "--id", "test-node", "--network", `{"listenPort":-1}`}, &output, source)
+	if err == nil || started {
+		t.Fatalf("bad network started harness: started=%v error=%v", started, err)
+	}
+}
+
 func configuredOperatorHome(t *testing.T) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {

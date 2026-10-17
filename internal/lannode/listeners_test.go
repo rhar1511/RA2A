@@ -21,7 +21,7 @@ func testBoundServers(t *testing.T, list func() ([]string, error)) (*Node, *boun
 	if err := router.Handle("/v1/sessions", mux.HandlerFunc(n.handleSessions)); err != nil {
 		t.Fatal(err)
 	}
-	b, err := newBoundServers(n.key, router, list)
+	b, err := newBoundServers(n.key, router, list, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

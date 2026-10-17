@@ -128,6 +128,30 @@ RA2A registers the same binary as a Codex stdio MCP server and forwards tool cal
 
 Peer discovery is lifecycle-aware: goodbye or expired mDNS records remove stale endpoints, and the daemon periodically reloads network interfaces after Wi-Fi changes or system wake. If DTLS fails before delivery, RA2A refreshes discovery and safely retries once against the recovered endpoint, including when a node returns on the same address.
 
+For peers on separate subnets (including Tailscale), optionally add a `network`
+section to each node's existing `~/.config/ra2a/config.json`, then restart the
+daemon. Keep the existing identity, harness and PIN fields. For example, on
+`mac-mini`:
+
+```json
+"network": {
+  "listenPort": 47322,
+  "peers": [{"id": "gascity", "address": "gascity.example.ts.net:47322"}]
+}
+```
+
+Configure the reciprocal `mac-mini` endpoint on `gascity`. The selected UDP port
+must be reachable between those two hosts. Explicit peers take precedence over
+mDNS advertisements and still require the shared PIN through the existing DTLS
+handshake. Session addresses remain `ra2a://node/endpoint`. The HTTP control
+endpoint stays on loopback; do not expose port 47321 to make this work. Omitting
+`network` preserves existing LAN discovery and ephemeral-port behavior.
+
+Session directories negotiate gzip over authenticated DTLS to avoid thousands of
+block requests for hosts with large histories. Older clients keep receiving JSON,
+and older servers can ignore the compression query. Decoded responses are capped
+at 16 MiB; the existing discovery deadline remains unchanged.
+
 RA2A sends through the current Codex Desktop owner so that the open Desktop UI stays synchronized. It uses `turn/steer` when the target already has an active turn and creates a new turn with `turn/start` only after Desktop explicitly reports that no active turn exists. RA2A never falls back to a second writer: if Desktop is unavailable, it returns `DESKTOP_OWNER_UNAVAILABLE` and asks the agent to start Codex Desktop.
 
 The managed App Server used for session discovery is isolated per daemon launch. RA2A records its PID and socket in a small owner lease, removes stale leases on startup, and terminates the whole managed process group on shutdown. It never adopts an arbitrary existing App Server socket, preventing orphaned writers from taking over a later session.
@@ -179,6 +203,12 @@ cd RA2A
 go test ./...
 go run ./cmd/ra2a selftest --pin A2B3C4 --id local-dev --name "Local Dev"
 ```
+
+For this fork, Linux CI is required. Hosted macOS results are advisory because
+its virtual network rejects multicast packets. Before merging a networking
+change, qualify the same source tree on a Mac with working multicast using
+`go test -race -p 1 -count=1 ./...` and `go vet ./...`, and attach the logs to the
+PR. Package serialization prevents the process fixtures from competing for ports.
 
 Install from source with `./install.sh`; uninstall with `./install.sh --uninstall`. On Windows, use `install.ps1` and its `-Uninstall` option.
 

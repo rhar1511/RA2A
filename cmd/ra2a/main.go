@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -193,7 +194,11 @@ func run(ctx context.Context, args []string, output io.Writer, startSource sessi
 		if controlAddress == "" {
 			controlAddress = "127.0.0.1:47321"
 		}
-		return run(ctx, []string{"serve", "--pin", config.PIN, "--id", config.NodeID, "--name", config.Name, "--codex", config.Codex, "--control-address", controlAddress}, output, startSource)
+		network, err := json.Marshal(config.Network)
+		if err != nil {
+			return err
+		}
+		return run(ctx, []string{"serve", "--pin", config.PIN, "--id", config.NodeID, "--name", config.Name, "--codex", config.Codex, "--control-address", controlAddress, "--network", string(network)}, output, startSource)
 	}
 	if len(args) == 0 || (args[0] != "selftest" && args[0] != "serve" && args[0] != "send") {
 		return errors.New("usage: ra2a <setup|restart|stop|exit|name|pin|version|update|adopt-cli|release-cli|mailbox|opencode|pi|selftest|serve|send> [options]")
@@ -210,6 +215,7 @@ func run(ctx context.Context, args []string, output io.Writer, startSource sessi
 	targetSessionID := flags.String("session", "", "destination Codex session ID (send only)")
 	text := flags.String("message", "", "message text (send only)")
 	controlAddress := flags.String("control-address", "127.0.0.1:47321", "loopback MCP control address (serve only)")
+	networkJSON := flags.String("network", "{}", "optional JSON listenPort and peers")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -222,6 +228,13 @@ func run(ctx context.Context, args []string, output io.Writer, startSource sessi
 	}
 	if *name == "" {
 		*name = *id
+	}
+	var network lannode.NetworkConfig
+	if err := json.Unmarshal([]byte(*networkJSON), &network); err != nil {
+		return fmt.Errorf("decode network configuration: %w", err)
+	}
+	if err := network.Validate(*id); err != nil {
+		return err
 	}
 
 	adopted, err := adoptedCLISessions()
@@ -238,7 +251,8 @@ func run(ctx context.Context, args []string, output io.Writer, startSource sessi
 	}
 	defer registry.Close()
 	node, err := lannode.Start(ctx, lannode.Config{
-		ID: *id, Name: *name, PIN: *pin, Sessions: registryAdapter{registry: registry}.ListSessions,
+		Network: network,
+		ID:      *id, Name: *name, PIN: *pin, Sessions: registryAdapter{registry: registry}.ListSessions,
 		SendMessage: func(ctx context.Context, message lannode.Message) error {
 			return deliverOverLAN(ctx, *id, registry, store, message)
 		},
