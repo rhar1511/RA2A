@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Diagnostic only: run inside a private network namespace. No Agent or model.
 package main
 

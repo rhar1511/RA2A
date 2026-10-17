@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Select short canonical temporary path
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            temp_root=/private/tmp/r2
+          else
+            temp_root=/tmp/r2
+          fi
+          mkdir -p "$temp_root"
+          echo "TMPDIR=$temp_root" >> "$GITHUB_ENV"
+      - name: Test with race detector
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
