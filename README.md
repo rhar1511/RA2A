@@ -147,6 +147,11 @@ handshake. Session addresses remain `ra2a://node/endpoint`. The HTTP control
 endpoint stays on loopback; do not expose port 47321 to make this work. Omitting
 `network` preserves existing LAN discovery and ephemeral-port behavior.
 
+Session directories negotiate gzip over authenticated DTLS to avoid thousands of
+block requests for hosts with large histories. Older clients keep receiving JSON,
+and older servers can ignore the compression query. Decoded responses are capped
+at 16 MiB; the existing discovery deadline remains unchanged.
+
 RA2A sends through the current Codex Desktop owner so that the open Desktop UI stays synchronized. It uses `turn/steer` when the target already has an active turn and creates a new turn with `turn/start` only after Desktop explicitly reports that no active turn exists. RA2A never falls back to a second writer: if Desktop is unavailable, it returns `DESKTOP_OWNER_UNAVAILABLE` and asks the agent to start Codex Desktop.
 
 The managed App Server used for session discovery is isolated per daemon launch. RA2A records its PID and socket in a small owner lease, removes stale leases on startup, and terminates the whole managed process group on shutdown. It never adopts an arbitrary existing App Server socket, preventing orphaned writers from taking over a later session.

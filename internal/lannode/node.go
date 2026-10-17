@@ -197,9 +197,14 @@ func (n *Node) handleSessions(w mux.ResponseWriter, request *mux.Message) {
 		_ = w.SetResponse(codes.InternalServerError, message.TextPlain, strings.NewReader(err.Error()))
 		return
 	}
-	payload, err := json.Marshal(sessionsResponse{ProtocolVersion: ProtocolVersion, Sessions: sessions})
+	queries, _ := request.Queries()
+	compressed := false
+	for _, query := range queries {
+		compressed = compressed || query == sessionCompressionQuery
+	}
+	payload, format, err := encodeSessions(sessions, compressed)
 	if err == nil {
-		err = w.SetResponse(codes.Content, message.AppJSON, bytes.NewReader(payload))
+		err = w.SetResponse(codes.Content, format, bytes.NewReader(payload))
 	}
 	if err != nil {
 		_ = w.SetResponse(codes.InternalServerError, message.TextPlain, strings.NewReader(err.Error()))
@@ -350,7 +355,7 @@ func (n *Node) ListSessions(ctx context.Context, peer Peer) ([]Session, error) {
 		return nil, fmt.Errorf("connect to %s: %w", peer.ID, err)
 	}
 	defer client.Close()
-	response, err := client.Get(ctx, "/v1/sessions")
+	response, err := client.Get(ctx, "/v1/sessions", message.Option{ID: message.URIQuery, Value: []byte(sessionCompressionQuery)})
 	if err != nil {
 		return nil, fmt.Errorf("request sessions from %s: %w", peer.ID, err)
 	}
@@ -358,15 +363,15 @@ func (n *Node) ListSessions(ctx context.Context, peer Peer) ([]Session, error) {
 	if response.Code() != codes.Content {
 		return nil, fmt.Errorf("request sessions from %s: CoAP code %v", peer.ID, response.Code())
 	}
-	body, err := io.ReadAll(response.Body())
+	format, err := response.ContentFormat()
 	if err != nil {
-		return nil, fmt.Errorf("read sessions from %s: %w", peer.ID, err)
+		return nil, fmt.Errorf("read session format from %s: %w", peer.ID, err)
 	}
-	var decoded sessionsResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
+	sessions, err := decodeSessions(response.Body(), format)
+	if err != nil {
 		return nil, fmt.Errorf("decode sessions from %s: %w", peer.ID, err)
 	}
-	return decoded.Sessions, nil
+	return sessions, nil
 }
 
 func (n *Node) SendMessage(ctx context.Context, peer Peer, outgoing Message) error {
