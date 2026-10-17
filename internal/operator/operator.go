@@ -16,19 +16,22 @@ import (
 	"time"
 
 	"github.com/ceasarXuu/RA2A/internal/codexhost"
+	"github.com/ceasarXuu/RA2A/internal/lannode"
 	"github.com/ceasarXuu/RA2A/internal/ochost"
 	"github.com/ceasarXuu/RA2A/internal/pi"
 )
 
-const Version = "v0.0.18"
+// Version may be set at build time to distinguish a locally qualified patch.
+var Version = "v0.0.18"
 
 type Config struct {
-	NodeID   string `json:"nodeId"`
-	Name     string `json:"name"`
-	PIN      string `json:"pin"`
-	Codex    string `json:"codex,omitempty"`
-	OpenCode string `json:"opencode,omitempty"`
-	Pi       string `json:"pi,omitempty"`
+	Network  *lannode.NetworkConfig `json:"network,omitempty"`
+	NodeID   string                 `json:"nodeId"`
+	Name     string                 `json:"name"`
+	PIN      string                 `json:"pin"`
+	Codex    string                 `json:"codex,omitempty"`
+	OpenCode string                 `json:"opencode,omitempty"`
+	Pi       string                 `json:"pi,omitempty"`
 	// CLISessions lists the Codex CLI thread IDs this node publishes. Ownership
 	// of a CLI thread cannot be read back from the host, so adoption is an
 	// explicit operator decision recorded here rather than a guess.
@@ -165,6 +168,11 @@ func Save(config Config) error {
 }
 
 func Validate(config Config) error {
+	if config.Network != nil {
+		if err := config.Network.Validate(config.NodeID); err != nil {
+			return err
+		}
+	}
 	if config.NodeID == "" || strings.TrimSpace(config.Name) == "" || (config.Codex == "" && config.OpenCode == "" && config.Pi == "") {
 		return errors.New("node ID, name, and at least one supported harness are required")
 	}

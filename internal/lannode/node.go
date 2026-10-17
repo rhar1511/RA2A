@@ -37,6 +37,7 @@ var ErrPeerUnreachable = errors.New("peer unreachable before delivery")
 var ErrEndpointNotFound = errors.New("endpoint not found before delivery")
 
 type Config struct {
+	Network     NetworkConfig
 	ID          string
 	Name        string
 	PIN         string
@@ -45,9 +46,9 @@ type Config struct {
 }
 
 type Peer struct {
-	ID      string
-	Name    string
-	Address string
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Address string `json:"address"`
 }
 
 // Session is the LAN view of one endpoint. Agent and Capabilities are additive:
@@ -95,6 +96,9 @@ func Start(parent context.Context, config Config) (*Node, error) {
 	if len(config.PIN) != 6 {
 		return nil, errors.New("PIN must be exactly 6 bytes")
 	}
+	if err := config.Network.Validate(config.ID); err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithCancel(parent)
 	n := &Node{
@@ -110,6 +114,12 @@ func Start(parent context.Context, config Config) (*Node, error) {
 	}
 	port := n.bindings.port
 	n.peers[config.ID] = Peer{ID: config.ID, Name: config.Name, Address: net.JoinHostPort("127.0.0.1", fmt.Sprint(port))}
+	for _, peer := range config.Network.Peers {
+		if peer.Name == "" {
+			peer.Name = peer.ID
+		}
+		n.peers[peer.ID] = peer
+	}
 	serviceType := zeroconf.NewType(serviceName)
 	service := zeroconf.NewService(serviceType, config.ID, uint16(port))
 	service.Text = []string{"version=1", "id=" + config.ID, "name=" + config.Name}
@@ -142,7 +152,7 @@ func (n *Node) startServer() error {
 	if err := router.Handle("/v1/messages", mux.HandlerFunc(n.handleMessage)); err != nil {
 		return fmt.Errorf("register message handler: %w", err)
 	}
-	bindings, err := newBoundServers(n.key, router, localIPv4)
+	bindings, err := newBoundServers(n.key, router, localIPv4, n.config.Network.ListenPort)
 	if err != nil {
 		return err
 	}
@@ -200,6 +210,12 @@ func (n *Node) handlePeerEvent(event zeroconf.Event) {
 	id, name := peerIdentity(event.Name, event.Text)
 	if id == "" || id == n.config.ID {
 		return
+	}
+	// Explicit endpoints take precedence over LAN advertisements and goodbyes.
+	for _, peer := range n.config.Network.Peers {
+		if peer.ID == id {
+			return
+		}
 	}
 	n.peersMu.Lock()
 	if event.Op == zeroconf.OpRemoved {

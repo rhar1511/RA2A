@@ -32,8 +32,8 @@ type boundServers struct {
 	active map[string]boundServer
 }
 
-func newBoundServers(key []byte, router *mux.Router, list func() ([]string, error)) (*boundServers, error) {
-	b := &boundServers{key: key, router: router, list: list, active: make(map[string]boundServer)}
+func newBoundServers(key []byte, router *mux.Router, list func() ([]string, error), port int) (*boundServers, error) {
+	b := &boundServers{port: port, key: key, router: router, list: list, active: make(map[string]boundServer)}
 	if err := b.bind("127.0.0.1"); err != nil {
 		return nil, err
 	}
