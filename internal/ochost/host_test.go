@@ -177,6 +177,7 @@ func TestSupervisedServerRestartsAfterAnUnexpectedExit(t *testing.T) {
 		Executable: script, URL: "http://127.0.0.1:" + strconv.Itoa(port),
 		RestartDelay: 100 * time.Millisecond, ReadinessTimeout: 10 * time.Second,
 		OwnerPath: filepath.Join(directory, "owner.json"),
+		Stderr:    os.Stderr,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -201,10 +202,9 @@ func TestSupervisedServerRestartsAfterAnUnexpectedExit(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(counter)
-		if err == nil && strings.Count(string(data), "x") >= 2 {
-			if !Reachable(context.Background(), "http://127.0.0.1:"+strconv.Itoa(port)) {
-				t.Fatal("server must be reachable again after restart")
-			}
+		// The shell records a start before Python binds its HTTP listener.
+		if err == nil && strings.Count(string(data), "x") >= 2 &&
+			Reachable(context.Background(), "http://127.0.0.1:"+strconv.Itoa(port)) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -276,6 +276,7 @@ func TestServerOutlivesTheClientThatStartedIt(t *testing.T) {
 		Executable: script, URL: "http://127.0.0.1:" + strconv.Itoa(port),
 		RestartDelay: 50 * time.Millisecond, ReadinessTimeout: 10 * time.Second,
 		OwnerPath: ownerPath,
+		Stderr:    os.Stderr,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

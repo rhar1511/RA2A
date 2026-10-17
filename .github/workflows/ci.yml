@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -24,6 +24,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Select short canonical temporary path
         shell: bash
         run: |
@@ -35,6 +38,7 @@ jobs:
           mkdir -p "$temp_root"
           echo "TMPDIR=$temp_root" >> "$GITHUB_ENV"
       - name: Test with race detector
-        run: go test -race ./...
+        # Packages share mDNS sockets and process fixtures on the runner.
+        run: go test -race -p 1 ./...
       - name: Vet
         run: go vet ./...
