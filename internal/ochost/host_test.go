@@ -16,10 +16,13 @@ import (
 	"time"
 )
 
-const fakeServerSource = `import http.server, sys
+const fakeServerSource = `import http.server, os, sys
+
+print("[DEBUG-ra2a-ci] Python launched", os.getpid(), sys.argv[1], flush=True)
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        print("[DEBUG-ra2a-ci] request", self.path, flush=True)
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.end_headers()
@@ -28,7 +31,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+server = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler)
+print("[DEBUG-ra2a-ci] listening", server.server_address, flush=True)
+server.serve_forever()
 `
 
 // stopSupervisedServer kills the shared server a test started.

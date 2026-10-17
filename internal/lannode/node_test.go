@@ -3,7 +3,9 @@ package lannode
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/netip"
+	"os"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -161,6 +163,7 @@ func TestSendMessageClassifiesDTLSHandshakeFailureAsPeerUnreachable(t *testing.T
 }
 
 func TestRefreshPeerResolvesChangedEndpointAfterRestart(t *testing.T) {
+	debugDiscovery(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	observer, err := Start(ctx, Config{ID: "refresh-observer", Name: "Refresh Observer", PIN: "A2B3C4"})
@@ -232,6 +235,7 @@ func TestPeerRemovedEventEvictsCachedEndpoint(t *testing.T) {
 }
 
 func TestNodeEvictsPeerAfterRemoteShutdown(t *testing.T) {
+	debugDiscovery(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	observer, err := Start(ctx, Config{ID: "shutdown-observer", Name: "Shutdown Observer", PIN: "A2B3C4"})
@@ -258,6 +262,13 @@ func TestNodeEvictsPeerAfterRemoteShutdown(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+}
+
+func debugDiscovery(t *testing.T) {
+	t.Helper()
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})).With("probe", "DEBUG-ra2a-ci"))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 }
 
 func TestPeersReturnsSortedSnapshot(t *testing.T) {

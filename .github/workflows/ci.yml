@@ -38,6 +38,11 @@ jobs:
           fi
           mkdir -p "$temp_root"
           echo "TMPDIR=$temp_root" >> "$GITHUB_ENV"
+      - name: Diagnose hosted Mac fixture isolation
+        if: runner.os == 'macOS'
+        run: |
+          /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate || true
+          go test -race -p 1 -count=1 -v -run '^(TestRefreshPeerResolvesChangedEndpointAfterRestart|TestNodeEvictsPeerAfterRemoteShutdown|TestSupervisedServerRestartsAfterAnUnexpectedExit|TestServerOutlivesTheClientThatStartedIt)$' ./internal/lannode ./internal/ochost
       - name: Test with race detector
         # Packages share mDNS sockets and process fixtures on the runner.
         run: go test -race -p 1 ./...
