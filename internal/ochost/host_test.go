@@ -16,13 +16,10 @@ import (
 	"time"
 )
 
-const fakeServerSource = `import http.server, os, sys
-
-print("[DEBUG-ra2a-ci] Python launched", os.getpid(), sys.argv[1], flush=True)
+const fakeServerSource = `import http.server, socketserver, sys
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        print("[DEBUG-ra2a-ci] request", self.path, flush=True)
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.end_headers()
@@ -31,10 +28,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-server = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler)
-print("[DEBUG-ra2a-ci] listening", server.server_address, flush=True)
+# HTTPServer resolves the hostname during bind. This loopback fixture needs no
+# DNS or server-name metadata, so use its TCPServer base directly.
+server = socketserver.TCPServer(("127.0.0.1", int(sys.argv[1])), Handler)
 server.serve_forever()
 `
+
+func TestFakeServerBindsWithoutHostnameResolution(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3 available")
+	}
+	// Fail at the same call where hosted DNS stalls HTTPServer construction.
+	source := `import socket
+
+def reject_hostname(*args):
+    raise RuntimeError("loopback fixture must not resolve a hostname")
+
+socket.getfqdn = reject_hostname
+` + strings.Replace(fakeServerSource, "server.serve_forever()", "server.server_close()", 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, python, "-c", source, "0").CombinedOutput(); err != nil {
+		t.Fatalf("start fixture without DNS: %v\n%s", err, output)
+	}
+}
 
 // stopSupervisedServer kills the shared server a test started.
 //
@@ -182,7 +200,6 @@ func TestSupervisedServerRestartsAfterAnUnexpectedExit(t *testing.T) {
 		Executable: script, URL: "http://127.0.0.1:" + strconv.Itoa(port),
 		RestartDelay: 100 * time.Millisecond, ReadinessTimeout: 10 * time.Second,
 		OwnerPath: filepath.Join(directory, "owner.json"),
-		Stderr:    os.Stderr,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -281,7 +298,6 @@ func TestServerOutlivesTheClientThatStartedIt(t *testing.T) {
 		Executable: script, URL: "http://127.0.0.1:" + strconv.Itoa(port),
 		RestartDelay: 50 * time.Millisecond, ReadinessTimeout: 10 * time.Second,
 		OwnerPath: ownerPath,
-		Stderr:    os.Stderr,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

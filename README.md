@@ -204,6 +204,12 @@ go test ./...
 go run ./cmd/ra2a selftest --pin A2B3C4 --id local-dev --name "Local Dev"
 ```
 
+For this fork, Linux CI is required. Hosted macOS results are advisory because
+its virtual network rejects multicast packets. Before merging a networking
+change, qualify the same source tree on a Mac with working multicast using
+`go test -race -p 1 -count=1 ./...` and `go vet ./...`, and attach the logs to the
+PR. Package serialization prevents the process fixtures from competing for ports.
+
 Install from source with `./install.sh`; uninstall with `./install.sh --uninstall`. On Windows, use `install.ps1` and its `-Uninstall` option.
 
 GitHub Release is the official release path. Pushing a `v*` tag triggers the [Release workflow](.github/workflows/release.yml), which verifies the version, runs tests, builds six OS/architecture targets, and publishes SHA-256 checksums.
