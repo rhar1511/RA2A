@@ -30,7 +30,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 # HTTPServer resolves the hostname during bind. This loopback fixture needs no
 # DNS or server-name metadata, so use its TCPServer base directly.
-server = socketserver.TCPServer(("127.0.0.1", int(sys.argv[1])), Handler)
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+
+server = Server(("127.0.0.1", int(sys.argv[1])), Handler)
 server.serve_forever()
 `
 
